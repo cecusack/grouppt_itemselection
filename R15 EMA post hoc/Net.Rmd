@@ -1,0 +1,398 @@
+---
+title: "IdiotoNomDF"
+output: html_document
+date: '2022-08-24'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# dat set up
+agg all idio dfs into one
+```{r}
+library(tidyverse)
+library(psych)
+library(mlVAR) # for estimating network
+library(qgraph) # for visualizing network
+
+load("R15_posthoc.Rdata")
+
+# set path
+getwd()
+common_path = "/Users/clairecusack/Dropbox/PT group network paper (PT open series)/grouppt_dev/R15 EMA post hoc"
+
+# specify what I want
+files_to_read = list.files(
+  path = common_path,        # directory to search within
+  pattern = "*rawwithtime.csv$", # regex pattern, some explanation below
+  recursive = TRUE,          # search subdirectories
+  full.names = TRUE          # return the full path
+)
+
+# make list of participant dataframes
+data_lst = lapply(files_to_read, read.csv)  # read all the matching files
+
+dat <- do.call(rbind.data.frame, data_lst)
+# View(dat)
+head(dat)
+dim(dat) # 4750 x 73
+round(sum(is.na(dat[,-c(1:11)]))/prod(dim(dat[,-c(1:11)]))*100, 2) # 31.38
+```
+
+# bad ids
+remove people with less than a week of EMA
+```{r}
+badids <- sub(".*/", "", list.dirs(paste0(getwd(), "/IDs not used"))[-1])
+
+dat <- dat[!dat$ID %in% badids, ]
+
+table(dat$ID)
+# checking low obs
+# PR018
+dat[which(dat$ID=="PR018"),]
+dat[which(dat$ID=="PR018"), c(which(colnames(dat)=="dayvar"):which(colnames(dat)=="beepconsec"))]
+# dayvar = 8, beep consec = 32
+
+length(unique(dat$ID)) # 41
+dim(dat) # 4575 x 73
+```
+
+# network
+
+Items to include: shame, guilt, overval, alwaysworry, fearloc, selfcrit, emo_overwhelm, ineffective
+```{r}
+nodes <- c("shame", "guilty", "overvalwtsh", "worryoverwhelm", "fearloc", "mistakes", "emo_overwhelm", "ineffective")
+
+fit_r15 <- mlVAR(dat, vars=nodes, idvar="ID", beepvar="beepvar", dayvar="dayvar", lags = 1,
+             temporal = "correlated", estimator = "lmer", contemporaneous = "correlated", nCores = 1, verbose = TRUE,
+             scale = TRUE, scaleWithin = FALSE, AR = FALSE,
+             MplusSave = TRUE, MplusName = "mlVAR", iterations = "(2000)",
+             chains = nCores)
+
+dir.create("./Network") 
+write.csv(summary(fit_r15)[1], "./Network/modelfit_pdc.csv", row.names = FALSE)
+write.csv(summary(fit_r15)[2], "./Network/modelfit_pcc.csv", row.names = FALSE)
+write.csv(summary(fit_r15)[3], "./Network/modelfit_btwn.csv", row.names = FALSE)
+
+dir.create("./Network/Figures") # create a path
+
+#### temporal network plot ####
+pdf("./Network/Figures/temporalnetwork.pdf")
+pdc <- plot(fit_r15, "temporal", nonsig = "hide", label.cex=1.3, alpha="0.05",
+          vsize=9, legend=F, edge.labels = TRUE,  color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./Network/Figures/pdc_centplot.pdf")
+pdc_cent <- pdc %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+# centralityTable(pdc_imp)
+write.csv(centralityTable(pdc), "./Network/temporal centrality.csv", row.names = FALSE)
+
+# edges
+# getWmat(pdc_imp)
+write.csv(getWmat(pdc), "./Network/edges_pdc.csv", row.names = FALSE)
+
+
+#### contemporaneous network plot ####
+pdf("./Network/Figures/contemporaneousnetwork.pdf")
+pcc <- plot(fit_r15, "contemporaneous", nonsig = "hide", rule = "or", label.cex=1.3,
+          vsize=9, legend=F, alpha="0.05",edge.labels = TRUE,
+          color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./Network/Figures/pcc_centplot.pdf")
+pdc_cent <- pcc %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+test=as.data.frame(centrality_auto(pcc)[1])
+write.csv(test, "./Network/contemporaneous centrality.csv", row.names = TRUE)
+
+# edges
+# getWmat(pcc_imp)
+write.csv(getWmat(pcc), "./Network/edges_pcc.csv", row.names = FALSE)
+
+
+#### between subjects plot ####
+pdf("./Network/Figures/betweensubjectsnetwork.pdf")
+btwn <- plot(fit_r15, "between", nonsig = "hide", label.cex=1.3,
+          vsize=9, legend=F, alpha="0.05", rule = "or", edge.labels = TRUE, color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./Network/Figures/btwn_centplot.pdf")
+btwn_cent <- btwn %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+write.csv(centralityTable(btwn), "./Network/btwn centrality.csv", row.names = FALSE)
+
+# edges
+# getWmat(btwn_imp)
+write.csv(getWmat(btwn), "./Network/edges_btwn.csv", row.names = FALSE)
+```
+
+# centrality
+
+woooooo guilt and shame top 2 strength centrality contemporaneous
+```{r}
+centrality_auto(btwn)[[1]][3]
+# worryoverwhelm 1.42
+# ineffective 0.96
+# emotions overwhelm 0.71
+
+centrality_auto(pcc)[[1]][3]
+# guilt 0.72
+# shame 0.61
+
+centrality_auto(pdc)[[1]][4] # outstrength
+# shame 0.29
+# mistakes 0.25 (closeset i could come to self-criticsm)
+
+centrality_auto(pdc)[[1]][3] # instrength
+# guilt 0.28
+# shame 0.24
+```
+
+# set up zscores
+```{r}
+# zscore <- read.csv("../Group_cent/ztest_df.csv")
+all_cents <- readRDS("../Group_cent/all_centsDF2022-06-19.rds")
+freq <- as.data.frame(table(all_cents$names))
+names(freq) <- c("names", "total_n")
+
+all_cents <- left_join(all_cents, freq)
+
+all_cents %>% group_by(names, rank) %>% tally() 
+
+top8 <- c("shame", "guilt", "overval", "alwaysworry", "fearloc", "selfcrit", "emo_overwhelm", "ineffective")
+
+# creat empty df
+zscore_r15 <- data.frame(matrix(NA, nrow=8, ncol = 13))
+# set names
+names(zscore_r15) <- c("names", "mean_strength", "sd_strength", "mean_rank", "sd_rank", "n_count", "names_r15", "r15_cent", "r15_rank", "r15cent_zscore", "r15rank_zscore", "r15prob_cent", "r15prob_rank")
+
+zscore_r15[1:6] <- subset(all_cents, names %in% top8) %>% group_by(names) %>% summarise(mean_strength= mean(Strength), sd_strength = sd(Strength), mean_rank=mean(rank), sd_rank=sd(rank), n_count = max(total_n))
+
+zscore_r15$names
+
+# rownames(centrality_auto(pcc)[[1]][3])
+unlist()
+zscore_r15$names_r15 <- c("worryoverwhelm", "emo_overwhelm", "fearloc", "guilty", "ineffective", "overvalwtsh", "mistakes", "shame")
+centrality_auto(pcc)[[1]][3]
+zscore_r15[1,8] <- centrality_auto(pcc)[[1]][[3]][4]
+zscore_r15[2,8] <- centrality_auto(pcc)[[1]][[3]][7]
+zscore_r15[3,8] <- centrality_auto(pcc)[[1]][[3]][5]
+zscore_r15[4,8] <- centrality_auto(pcc)[[1]][[3]][2]
+zscore_r15[5,8] <- centrality_auto(pcc)[[1]][[3]][8]
+zscore_r15[6,8] <- centrality_auto(pcc)[[1]][[3]][3]
+zscore_r15[7,8] <- centrality_auto(pcc)[[1]][[3]][6]
+zscore_r15[8,8] <- centrality_auto(pcc)[[1]][[3]][1]
+# rank
+zscore_r15$r15_rank <- rank(-zscore_r15$r15_cent)
+# calculate z scores
+zscore_r15$r15cent_zscore <- (zscore_r15$r15_cent-zscore_r15$mean_strength)/zscore_r15$sd_strength
+zscore_r15$r15rank_zscore <- (zscore_r15$r15_rank-zscore_r15$mean_rank)/zscore_r15$sd_rank
+# calculate probabilities
+# if observed is lower look at lower tail; if observed is higher than mean, look at upper tail
+for(i in 1:nrow(zscore_r15)){
+  if(zscore_r15$r15_cent[i] < zscore_r15$mean_strength[i]) {
+    zscore_r15$r15prob_cent[i] <- pnorm(q= zscore_r15$r15cent_zscore[i], lower.tail = TRUE)
+  } else {
+    zscore_r15$r15prob_cent[i] <- pnorm(q= zscore_r15$r15cent_zscore[i], lower.tail = FALSE)
+  }
+  if(zscore_r15$r15_rank[i] < zscore_r15$mean_rank[i]){
+    zscore_r15$r15prob_rank[i] <- pnorm(zscore_r15$r15rank_zscore[i], lower.tail = TRUE)
+  } else {
+    zscore_r15$r15prob_rank[i] <- pnorm(zscore_r15$r15rank_zscore[i], lower.tail = FALSE)
+  }
+}
+
+zscore_r15$r15prob_cent <- as.numeric(zscore_r15$r15prob_cent)
+zscore_r15$r15prob_rank <- as.numeric(zscore_r15$r15prob_rank)
+zscore_r15$r15prob_cent <- format.pval(pv = zscore_r15$r15prob_cent, digits = 2,eps = 0.001, nsmall = 3)
+zscore_r15$r15prob_rank <- format.pval(pv = zscore_r15$r15prob_rank, digits = 2,eps = 0.001, nsmall = 3)
+```
+
+
+```{r}
+save.image(file = "R15_posthoc.RData")
+```
+
+
+# MEANS
+11/4/22 group net mtg
+
+## subset and keep 34 tx targets
+not included past meal or selfcrit
+```{r}
+
+library(reshape2)
+library(tidyverse)
+library(mlVAR)
+library(qgraph)
+library(plyr)
+library(ggbeeswarm)
+library(here)
+here()
+load("R15_posthoc.Rdata")
+rm(all_cents, btwn, btwn_cent, data_lst, fit_r15, freq, pcc, pdc, pdc_cent, pdc_imp, test, zscore_r15, i)
+
+r15_subset = dat %>% select(ID, dayvar, beepvar, shame, guilty, overvalwtsh, worryoverwhelm, fearloc, mistakes, emo_overwhelm, ineffective, bodydiss, rumination, intrus_thought, reject, iuc, relax, eat_anx, food_intrus, desirethin, saa, fowg, avoid_food, food_intrus, feelfat, hunger_anx, physsens, bodycheck, foodrules, exercise, highstand, sens_body, avoid_emo, urge_restrict, binge, eat_public)
+
+```
+
+## identify means
+```{r}
+clairecleans::item_sel(r15_subset[-c(1:3)], 8)
+# bodydiss*
+# feelfat
+# fowg
+# urge_restrict
+# mistakes*
+# desire thin
+# overval wtsh
+# highstand
+```
+
+## net
+```{r}
+r15_top8 <- mlVAR(r15_subset, vars=names.means, idvar="ID", beepvar="beepvar", dayvar="dayvar", lags = 1,
+             temporal = "correlated", estimator = "lmer", contemporaneous = "correlated", nCores = 1, verbose = TRUE,
+             scale = TRUE, scaleWithin = FALSE, AR = FALSE,
+             MplusSave = TRUE, MplusName = "mlVAR", iterations = "(2000)",
+             chains = nCores)
+
+dir.create("./Top8") 
+write.csv(summary(r15_top8)[1], "./Top8/modelfit_pdc.csv", row.names = FALSE)
+write.csv(summary(r15_top8)[2], "./Top8/modelfit_pcc.csv", row.names = FALSE)
+write.csv(summary(r15_top8)[3], "./Top8/modelfit_btwn.csv", row.names = FALSE)
+
+dir.create("./Top8/Figures") # create a path
+
+#### temporal network plot ####
+pdf("./Top8/Figures/temporalnetwork.pdf")
+pdc <- plot(r15_top8, "temporal", nonsig = "hide", label.cex=1.3, alpha="0.05",
+          vsize=9, legend=F, edge.labels = TRUE,  color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./Top8/Figures/pdc_centplot.pdf")
+pdc_cent <- pdc %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+# centralityTable(pdc_imp)
+write.csv(centralityTable(pdc), "./Top8/temporal centrality.csv", row.names = FALSE)
+
+# edges
+# getWmat(pdc_imp)
+write.csv(getWmat(pdc), "./Top8/edges_pdc.csv", row.names = FALSE)
+
+
+#### contemporaneous network plot ####
+pdf("./Top8/Figures/contemporaneousnetwork.pdf")
+pcc <- plot(r15_top8, "contemporaneous", nonsig = "hide", rule = "or", label.cex=1.3,
+          vsize=9, legend=F, alpha="0.05",edge.labels = TRUE,
+          color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./Top8/Figures/pcc_centplot.pdf")
+pdc_cent <- pcc %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+test=as.data.frame(centrality_auto(pcc)[1])
+write.csv(test, "./Top8/contemporaneous centrality.csv", row.names = TRUE)
+
+# edges
+# getWmat(pcc_imp)
+write.csv(getWmat(pcc), "./Top8/edges_pcc.csv", row.names = FALSE)
+
+
+#### between subjects plot ####
+pdf("./Top8/Figures/betweensubjectsnetwork.pdf")
+btwn <- plot(r15_top8, "between", nonsig = "hide", label.cex=1.3,
+          vsize=9, legend=F, alpha="0.05", rule = "or", edge.labels = TRUE, color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./Top8/Figures/btwn_centplot.pdf")
+btwn_cent <- btwn %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+write.csv(centralityTable(btwn), "./Top8/btwn centrality.csv", row.names = FALSE)
+
+# edges
+# getWmat(btwn_imp)
+write.csv(getWmat(btwn), "./Top8/edges_btwn.csv", row.names = FALSE)
+```
+
+# things for paper
+```{r}
+unique(dat$ID)
+count <- data.frame(table(dat$ID))
+min(count$Freq) # 32
+max(count$Freq) # 124
+names(count) <- c("ID", "surveynum")
+
+count <- left_join(count,dat %>% select(ID, dayvar, beepvar) %>% 
+  group_by(ID) %>% 
+  summarise(maxday=max(dayvar)))
+
+describe(count$surveynum) # m = 111.59 (SD = 20.33) min = 32, max = 124
+describe(count$maxday) # mean = 28.24 (SD = 5.11) min = 8, max = 31
+
+miss <- r15_subset %>%
+  select(ID, shame:eat_public) %>% 
+  group_by(ID) %>%
+  summarise_at(vars(-group_cols()), ~ 100 *mean(is.na(.))) %>% 
+  select(ID, shame) %>% 
+  rename(missingness=shame)
+
+describe(miss$missingness) # 32.23 (SD = 19.01), min = 2.42, max = 65.77
+```
+

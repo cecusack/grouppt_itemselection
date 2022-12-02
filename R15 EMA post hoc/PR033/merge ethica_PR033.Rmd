@@ -1,0 +1,250 @@
+---
+title: "PR033"
+author: 'ccusack'
+date: "06-27-2022"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 6
+    toc_float: true
+    number_sections: true
+    code_folding: hide
+    theme: cosmo
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# packages, functions, dat
+```{r packages}
+# clear work space
+rm(list=ls())
+id_name=gsub(".*/", "", getwd()) # if the id name is the last text in the folder (it often is), you can pull the ID name directly from the file path. 
+
+# packages.you could use library(package). I opted for this in case this code is shared with people who don't have some of these packages. What it does is: if you have the package, it loads it. If you don't, it will install and the load it
+# if (!require("tidyverse")) {install.packages("tidyverse"); require("tidyverse")} # a lifeline
+# if (!require("imputeTS")) {install.packages("imputeTS"); require("imputeTS")} # kalman impute ts data
+# library(psych)
+# library(devtools)
+# devtools::install_github("cecusack/clairecleans") # if you haven't installed this package, uncomment this line and run
+# library(clairecleans) # we will use it for selecting items with the highest means and sds
+
+
+# data
+morn_import <- read.csv(dir(pattern='.csv$')[1], na.strings = c("", " "))
+dim(morn_import) # 15 x 75
+aft_import <- read.csv(dir(pattern='.csv$')[2], na.strings = c("", " "))
+dim(aft_import) # 29 x 73
+eve_import <- read.csv(dir(pattern='.csv$')[3], na.strings = c("", " "))
+dim(eve_import) # 14 x 97
+
+# copy so I don't overwrite and can reference raw later as needed
+morn <- morn_import
+aft <- aft_import
+eve <- eve_import
+
+# clean up some columns
+# morn
+if(any(names(morn)=="Duration..seconds..from.scheduled.to.completion.time")){
+  morn <- morn[-c(which(colnames(morn)=="Device.ID"):which(colnames(morn)=="Issued.Time"), which(colnames(morn)=="Duration..seconds..from.scheduled.to.completion.time"):which(colnames(morn)=="Location"))]
+} else{
+  morn <- morn[-c(which(colnames(morn)=="Device.ID"):which(colnames(morn)=="Issued.Time"), which(colnames(morn)=="Duration..minutes."):which(colnames(morn)=="Location"))]
+}
+
+# afternoon cols prune
+if(any(names(aft)=="Duration..seconds..from.scheduled.to.completion.time")){
+  aft <- aft[-c(which(colnames(aft)=="Device.ID"):which(colnames(aft)=="Issued.Time"), which(colnames(aft)=="Duration..seconds..from.scheduled.to.completion.time"):which(colnames(aft)=="Location"))]
+} else {
+  aft <- aft[-c(which(colnames(aft)=="Device.ID"):which(colnames(aft)=="Issued.Time"), which(colnames(aft)=="Duration..minutes."):which(colnames(aft)=="Location"))]
+}
+
+# eve cols
+if(any(names(eve)=="Duration..seconds..from.scheduled.to.completion.time")){
+  eve <- eve[-c(which(colnames(eve)=="Device.ID"):which(colnames(eve)=="Issued.Time"), which(colnames(eve)=="Duration..seconds..from.scheduled.to.completion.time"):which(colnames(eve)=="Location"))]
+} else {
+  eve <- eve[-c(which(colnames(eve)=="Device.ID"):which(colnames(eve)=="Issued.Time"), which(colnames(eve)=="Duration..minutes."):which(colnames(eve)=="Location"))]
+}
+
+
+# replace col names. What i did here was open a text editor and write each column name on a new line and save that file.  Below I read that file of variable abbreviations in my environment. I did this for efficiency
+mornname=scan("../mornname.txt", what="character", sep = "\n")
+
+if(dim(morn)[2]==72){
+  colnames(morn) <- mornname[-70]
+  } else if (dim(morn)[2]==71){
+    colnames(morn) <-mornname[-c(68,69)]
+    } else {
+      colnames(morn) <- mornname[-c(68:70)]
+      }
+
+colnames(aft)=colnames(morn)[-c(3:4)]  # same names except sleep and menst
+
+evename <- scan("../evename.txt", what="character", sep = "\n")
+if(dim(morn)[2]==72){
+  colnames(eve)[1:70] <- mornname[-c(3:4,70)]
+  colnames(eve)[71:ncol(eve)] <- evename
+  } else if (dim(morn)[2]==71){
+    colnames(eve)[1:69] <-mornname[-c(3:4,68:69)]
+    colnames(eve)[70:ncol(eve)] <- evename
+    } else {
+      colnames(eve)[1:68] <- mornname[-c(3:4,68:70)]
+      colnames(eve)[69:ncol(eve)] <- evename
+    }
+
+# merge the time points
+dat <- plyr::rbind.fill(morn, aft, eve)
+# arrange in order of time
+dat <- dat %>% dplyr::arrange(ethica_time)
+
+# adding dayvar and beepvar will be easier if we split day and time
+dat$day <- dat$ethica_time
+dat <- dat %>% relocate(day,.after=ethica_time) # move it
+# remove completely empty rows (e.g., missing ethica generated items too)
+if(dim(dat[is.na(dat$ethica_time),])[1]>0){
+  dat <- dat[!is.na(dat$ethica_time),]
+} else {
+  dat <- dat
+}
+
+if(sub(".* ([A-Z])", "\\1", dat$ethica_time)[1]=="CDT"|sub(".* ([A-Z])", "\\1", dat$ethica_time)[1]=="CST"){
+  dat$ethica_time <- as.POSIXct(dat$ethica_time, tz="America/Chicago")
+  } else if(sub(".* ([A-Z])", "\\1", dat$ethica_time)[1]=="EST"|sub(".* ([A-Z])", "\\1", dat$ethica_time)[1]=="EDT") {
+    dat$ethica_time <- as.POSIXct(dat$ethica_time, tz="America/New_York")
+    } else if(sub(".* ([A-Z])", "\\1", dat$ethica_time)[1]=="MST"|sub(".* ([A-Z])", "\\1", dat$ethica_time)[1]=="MDT") { 
+      dat$ethica_time <- as.POSIXct(dat$ethica_time, tz="America/Denver")
+      } else {
+        dat$ethica_time <- as.POSIXct(dat$ethica_time, tz="America/Los_Angeles")
+        }
+
+dat$ethica_time_utc <- dat$ethica_time
+dat <- dat %>% relocate(ethica_time_utc,.after=ethica_time)
+dat$ethica_time_utc <- format(dat$ethica_time_utc, tz="UTC")
+dat$ethica_time_utc <- as.POSIXct(format(dat$ethica_time_utc, tz="UTC"), tz="UTC")
+attributes(dat$ethica_time)$tzone # est
+attributes(dat$ethica_time_utc)$tzone # UTC
+
+dat$day <- gsub("\\s*\\w*$", "", dat$day)
+dat <- dat %>% separate(day, c("date","time"), sep = " ", fill = "right") 
+
+# sleep column. the item is "how much sleep did you get last night?" so, whatever the participant put for the first survey on a day should be the same for other time points of that day
+dat <- dat %>%
+  dplyr::group_by(date) %>%
+  fill(sleep, .direction = "down") %>%
+  fill(menst_yn, .direction = "down") %>% 
+  dplyr::ungroup()
+
+# dat[dat=="(ID 1) Yes"]<- "yes"
+# dat[dat=="(ID 2) No"]<- "no"
+
+dat$ID = id_name
+
+# before removing vars check missingness of items except ethica generated vectors
+round(sum(is.na(dat[,-c(1:5)]))/prod(dim(dat[,-c(1:5)]))*100, 2) # 74.30%
+
+# I'm removing y/n vars and the ones at the end of the day. keep only continuous VAS items
+# note: this column will change based on which columns you want to keep. Here I keep just the items rated on VAS
+dat <- dat[-c(which(colnames(dat)=="location"):ncol(dat))]
+dat <- dat[, -grep("yn$|describe$", colnames(dat))] # 96 cols to 67 cols
+# grep stands for global regular expression. this function finds a regex pattern, which in this case is the colnames that end ($) in yn
+
+# check missingness again
+round(sum(is.na(dat[,-c(1:5)]))/prod(dim(dat[,-c(1:5)]))*100, 2) # 66.26%
+
+# look
+head(dat,8) # default is 6. I changed to 8 to see 2 days (4 beeps/day)
+```
+
+# preprocessing
+## add day and beep var
+```{r}
+dat$date=as.Date(dat$date, "%Y-%m-%d")
+# add day var and beep consec
+dat <- dat %>% 
+  mutate(date=lubridate::as_date(date)) %>% 
+  mutate(dayvar = cumsum(!duplicated(date))) %>% 
+  mutate(beepconsec = seq(1:n())) %>% 
+  relocate(dayvar, .after=time) %>% 
+  relocate(beepconsec, .after=dayvar)
+# add beepvar
+dat <- dat %>% 
+  group_by(date) %>%
+  mutate(beepvar = seq(1:n())) %>% 
+  ungroup() %>% 
+  relocate(beepvar, .after=dayvar)
+
+# check
+describe(dat[6:8]) 
+# day 1-29
+# beepvar 1-4
+# max beep consec = 111
+```
+
+## deal with time
+```{r time}
+#### deal with time ####
+# create new var called lag that places time in the row below
+dat <- dat %>% mutate(lag=lag(ethica_time)) %>% relocate(lag, .after=ethica_time)
+## Calculate time differences
+dat$tdif <- as.numeric(difftime(strptime(dat$ethica_time,"%Y-%m-%d %H:%M:%S"),strptime(dat$lag,"%Y-%m-%d %H:%M:%S"))) # subtracting time from time lag
+
+# look to see if worked. I'm expected lag to contain the values of start moved down one row
+head(dat[,c(which(colnames(dat)=="ethica_time"), which(colnames(dat)=="lag"), which(colnames(dat)=="tdif"))]) 
+# LOOK BELOW THIS CODE CHUNK FOR THE OUTPUT
+# yes
+
+# remove night lag; this decision was made after consulting with Aaron Fisher.
+dat$tdif <- ifelse(dat$beepvar==1, dat$tdif==0, dat$tdif)
+# move new var to where I want, else it will stay at the end of the dataframe.
+dat <- dat %>% relocate(tdif, .after = lag)
+
+## Replace NA for first col
+dat$tdif[is.na(dat$tdif)] <- 0
+
+dat %>% select(ethica_time, lag, tdif)
+
+# Calculate cumulative sum of numeric elapsed time no night lag
+dat$cumsumT <- cumsum(dat$tdif)
+dat <- dat %>% relocate(cumsumT, .after = tdif)
+# look at it
+dat[,c(1:10)]
+# dat <- dat[-c(which(colnames(dat)=="date"), which(colnames(dat)=="time"))]
+
+#### save data ####
+name= paste0(id_name,'_rawwithtime')
+filetype= '.csv'
+filename= paste(name, filetype, sep='')
+write.csv(dat,file=filename, row.names = FALSE)
+```
+
+
+# impute
+{imputeTS} `na_kalman` is better for time-series data. See Mansueto et al. (2020). Investigating the Feasibility of Idiographic Networks. https://psyarxiv.com/hgcz6/ This paper is now published in psych methods 2022 10.1037/met0000466
+
+```{r impute}
+# see pattern of missingness
+# below I'm just looking at network items that begin in column 7 and go to the end. This will change based on where your columns of interest are located within the dataframe.
+# ggplot_na_distribution(dat[12:ncol(dat)]) # missing is indicated in red
+# # looks like end all missing remove these rows
+# dat <- dat[-c(35:nrow(dat)),]
+# 
+# # impute. note i'm only selecting survey vars to be imputed which start in column 7 and go to the end
+# imp_kalman <- na_kalman(dat[12:ncol(dat)], model="StructTS", smooth=TRUE)
+# imp_kalman <- cbind(dat[1:11],imp_kalman) # add back in the day/beep/time vars
+# 
+# dat <- imp_kalman # if you want to estimate networks with raw observations/not imputed. don't run this line.
+# 
+# # check
+# sum(is.na(dat[-c(1:9)]))/prod(dim(dat[-c(1:9)])) # 0 good
+# # if it isn't zero find out where the missing values are
+# sum(is.na(dat[-c(1:9)])) 
+# dat[rowSums(is.na(dat[-c(1:9)])) > 0, ] # dayvar=1, beepvar =1
+# colSums(is.na(dat))
+# 
+# #### save imputed data ####
+# name= paste0(res_dir, "/",id_name,'_impute')
+# filetype= '.csv'
+# filename= paste(name, Sys.Date(), filetype, sep='')
+# write.csv(dat,file=filename, row.names = FALSE)
+```
