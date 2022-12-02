@@ -1,0 +1,80 @@
+Unique ID,Original Dx,BMW Check Dx,ACK Check Dx,Confirmed Dx,Notes
+PT001,A-BED,A-BED,A-BN,A-BN,"AK notes - 10x/3 months bingeing, 5x/3 months fasting"
+PT002,BED,BED,BED,BED,
+PT003,BED,BED,BED,BED,
+PT004,A-BN,A-BED,A-BN,A-BN,
+PT005,A-BN,A-AN,A-BED,A-BED,"AK notes - binge eating 10x/3 months, no other bx's in the past 3 months, highest weight past 12 months = 185.6, lowest weight in past 12 months = 152.6, current weight: 182.6, current height: 5'11"""
+PT006,BED,BED,BED,BED,
+PT007,BED,BED,BN-NP,BN-NP,"AK notes - 30x/3months bingeing, 40x/3 months fasting"
+PT008,BN-NP,BN-NP,BN-NP,BN-NP,
+PT009,A-AN,A-AN,A-AN,A-AN,
+PT012,AN-BP,AN-BP,AN-BP,AN-BP,
+PT014,A-BN,A-BED,A-BN,A-BN,
+PT015,A-AN,A-AN,A-AN,A-AN,
+PT016,BN-P,A-BN-P,A-AN,A-BN-P,"AK notes - bingeing 10x/3 months, laxative use 6x/3 months, fasted 4x/week for 3 months, overexercised 19x/3 months - running, cardio 1-4 hours, current height: 5'5"", current weight: 258, highest weight past 12 months = 260, lowest weight past 12 months: 243"
+PT017,A-AN,A-AN,A-AN,A-AN,
+PT018,A-BN,A-BN,A-AN,A-AN,"AK notes - bingeing over 1x/week for 3 months, fasting 10x/3 months - NEED TO LOOK AT WEIGHT IN PAST YEAR - current height = 5'3"", current weight: 165, highest weight in past 12 months = 180 (guess); lowest weight in past 12 months: 158"
+PT019,BN-P,BN-P,BN-P,BN-P,
+PT020,BED,BED,BED,BED,
+PT021,AN-R,AN-R,AN-R,AN-R,
+PT022,BED,BED,BN-NP,BN-NP,"AK notes - bingeing over 1x/week for 3 months, fasting 1x/week for 3 months, overexcercising 24-30x/3 months - NEED TO LOOK AT EXERCISE BEHAVIOR (walking a lot for 1-2 hours)"
+PT023,A-BN,BED,A-AN,A-AN,"AK notes - bingeing 5x/week for 3 months, fasting 5x/3 months, overexercising 24x/3 months (2.5 hiking), current height: 5'11"", current weight: 220, highest weight past 12 months: 228, lowest weight past 12 months: 214"
+PT024,BED,BED,BED,BED,
+PT025,A-AN,A-AN,A-AN,A-AN,
+PT026,A-AN,A-AN,A-AN,A-AN,
+PT028,BN-NP,BN-NP,BN-NP,BN-NP,
+PT029,AN-R,AN-R,AN-R,AN-R,
+PT030,BN-P,BN-NP,BN-NP,BN-NP,"AK notes - since the DSM-5 doesn't have subtypes for BN anymore, not sure if this would count as a discrepency"
+PT031,A-BN,A-BN,A-AN,A-AN,"AK notes - DSM-5 says for A-BN, both binge and compens behaviors would need to be less than 1x/week for 3 months, binge doesn't meet frequency but compensatory behaviors do so I was thinking A-AN (bp subtype though not applicable for atypical diagnoses)"
+PT032,BN-NP,A-AN,A-AN,A-AN,"Worked with this participant clinically and due to her binges being subjective in the assessment and more fasting behaviors, plus past extreme weight loss, she seems to have A-AN to me but I'm open to other thoughts too"
+PT033,A-AN,A-AN,A-AN,A-AN,
+PT034,AN-BP,AN-BP,AN-BP,AN-BP,
+PT035,A-AN,A-AN,A-AN,A-AN,
+PT036,A-AN,A-AN,A-AN,A-AN,
+PT037,AN-R,AN-R,AN-R,AN-R,
+PT039,BN-P,BN-P,BN-P,BN-P,
+PT040,A-AN,A-AN,A-AN,A-AN,
+PT042,,,,BN-P,No folder in dropbox???
+PT043,AN-R,AN-R (partial rem),AN-R (partial rem),AN-R,No folder in dropbox???
+PT044,BN-NP,BED,BED,BED,Looks more like BED to me since puring behaviors of exercise are only 2x/week and not excessive. REDCap
+PT045,A-AN,A-AN,A-AN,A-AN,
+PT046,AN-R,AN-R,AN-R,AN-R,
+PT047,BN-NP,BN-NP,BN-NP,BN-NP,
+PT048,A-AN,A-AN,A-AN,A-AN,
+PT049,BED,BED,BED,BED,
+PT050,BED,BED,BED,BED,
+PT051,BED,BED,BED,BED,
+PT053,Purging Dis,A-BN,Purging Dis,Purging Dis,"Subjective binges - in email from Caroline; AK notes - since subjective binges don't meet the binge criteria ""an amount of food that is definitely larger than what most individuals would eat in a similar period of time under similar circumstances."", i think it would still be purging disorder"
+PT054,BED,BED,BED,BED,
+PT055,AN-R,AN-R,AN-R,AN-R,"No weight info in screening sheet, but self-reported weight as 108 (underweight) in baseline questionnaire"
+PT056,BED,BED,BED,BED,
+PT057,BN-P,BN-P,BN-P,BN-P,
+PT058,BN-NP,BN-NP,BN-NP,BN-NP,
+PT059,AN-?,AN-R,AN-R,AN-R,
+PT060,BN-NP,BN-NP,A-BN,A-BN,"AK notes - EDDI reports 3-4 binges in the past 3 months, compensatory behaviors of low frequency as well; REDCap record 34 (take 2 pt060)"
+PT062,A-BN,BN-P,BN,BN-P,"Took another look at frequency and when you add up purging and lax use in the past 3 months, it makes frequency. REDCap; AK notes - don't see lax use - nonpurging compens freq over 3 months = 10, purging over 3 months = 10; compens (purging + non-purging 3 months = 20) - DSM-5 doesn't actually have purging and non-purging subtypes, so i just left it at BN since it is equal in this case"
+PT063,BED,BED,BED,BED,
+PT064,AN-R,A-AN,A-AN,A-AN,"JUST at healthy weight in the past year. Could maybe argue AN-R partial remission, but I think it's better to go with A-AN. Dropbox pre-screening folder"
+PT065,BED,BED,BED,BED,
+PT068,A-BED,A-BED,A-BED,A-BED,
+PT069,BED,A-BED,A-AN,USFED,"Subjective binges, so would say A-BED or other type of OSFED rather than full threshold. REDCap #24; AK notes - since subjective binge doesn't seem to meet DSM-5 binge eating criteria of eating a large amount of food, I might say A-AN instead?"
+PT070,AN-BP,AN-BP (partial rem),AN-BP (partial rem),AN-BP,
+PT072,A-AN,A-AN,A-AN,A-AN,
+PT073,BN-NP,BN-NP,BN-NP,BN-NP,
+PT075,AN-R,AN-R,AN-R,AN-R,
+PT078,BN-NP,AN-BP (partial rem),BN-NP,AN-BP,Underweight in the past year but still bx? REDCap #33; AK notes - this is tricky since the DSM-5 doesn't provide guidance in terms of behavior use during remission/partial remission. I'm leaning toward BN-NP since there were still use of behaviors but think AN-BP (partial remission) can also have a good rationale
+PT080,BN-P,AN-BP,AN-BP,AN-BP,Underweight. Dropbox in pre-screenings folder
+PT081,AN-R,AN-R,AN-R,AN-R,
+PT082,A-BN,A-BN,A-BN,A-BN,
+PT083,A-BED,A-BED,A-AN,USFED,Binges are subjective so doesn't seem to meet DSM-5 binge episode criteria
+PT084,BED,BED,BED,BED,
+PT085,BED,BED,BED,BED,
+PT086,A-BN,A-BN,A-AN,USFED,"AK notes - DSM-5 says for A-BN, both binge and compens behaviors would need to be less than 1x/week for 3 months, with binges being classified as objective - in this case, binges were subjective. since compensatory non-purging bx meet frequency criteria, might fit better as A-AN"
+PT087,A-BN,A-BN,A-AN,BN-P,"AK notes - while binge frequency is limited, purging bxs more than 1x/week for 3 months"
+PT088,AN-BP (part rem),A-AN,A-AN,A-AN,Never underweight. Could also argue Purging disorder. In dropbox PT088 folder under the treatment manual PDF
+PT089,AN-R,AN-R,AN-R,AN-R,
+PT090,BED,BED,BED,BED,
+PT092,BN-NP,BN-NP,BN,BN-NP,"AK notes - meet criteria for BN but subtype unclear since purge/non-purge bx frequency not listed; since the DSM-5 doesn't have subtypes for BN anymore, not sure if this would count as a discrepency"
+PT095,BED,BED,BED,BED,REDCap never finished??
+PT096,BED,BED,BED,BED,
+PT097,AN-R,AN-R,AN-R,AN-R,
