@@ -1,0 +1,859 @@
+---
+title: "GroupNet"
+author: "CCusack"
+date: "4/21/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Here's a list of most of my conventions:     
+
+**DATA objects**     
+     - Objects that contain data are stored as "dat" So the data I imported before doing anything is saved as dat_import. This object was copied as dat. It's not very descriptive, but it's short, and I'm a lazy coder, so shorter is nice for me even though not always intuitive for others.     
+     - dat_trim stands for "trimmed data." This object is a dataframe with only the top 10 means, thus trimmed from the full 57 EMA battery.      
+     - dedat stands for "detrended data." This object contains detrended data because the unimputed raw data violated stationarity assumptions. The imputed datda met assumptions of stationarity, thus was not detrended.     
+     - dat_imp stands for "imputed data."     
+
+**NETWORK objects**
+     - pdc = partial directed correlations, or temporal networks     
+     - pcc = partial contemporaneous correlations, or contemporaneous network     
+     - btwn = between-subjects networks     
+     - fit = ml var model    
+
+**OTHER objects**    
+    - vars = variables    
+    - I saved data as a "test" object when assessing stationarity. I could have named this anything. Nothing was coming to mind, so I chose test because I was testing something. It contains participant ID number and the 57 EMA items.     
+    - x represents an unlisted matrix of the stationarity results using the Dickey-Fuller test.
+
+**ITEM REDUCTION**
+We have 57 items. We reduced items based on PT targets paper:
+drive for thinness, body dissatisfaction, fear of weight gain, worry, overval wt/sh, fear rejection, saa, self-criticism, feeling ineffective, fear of losing control, concern over mistakes perfectionism, obsessions, cognitive restraint, iuc, rumination, repetive thoughts about food, meal rumination, high standards, feeling fat, eating rules, body checking, excessive exercise, difficulty eating in public, food avoidance, binge eating (objective), shame, guilt, emotional avoidance, anxiety about eating, emotions overwhelming , feared concerns about eating, interoceptive awareness, difficulty relaxing, hunger anxiety
+
+
+# packages and dat
+```{r}
+# clear work space
+# rm(list=ls())
+
+library(mlVAR) # for estimating network
+library(qgraph) # for visualizing network
+library(devtools) # it's just good to have. but also my package needs devools
+# devtools::install_github("cecusack/clairecleans")
+library(clairecleans) # functions for some preprocessing and diagnostics
+library(tidyverse) # for life
+library(sjmisc) # relocate several cols at once
+library(tseries) # kpss, dickey-fuller test
+library(gridExtra) # plots
+library(cowplot) # plots
+library(imputeTS) # impute
+library(psych) # descriptives
+
+# load("PTGroupNets.RData") # load previous work
+
+dat_import <- read.csv("PT_EMA2022-05-17.csv", header=TRUE, sep=",", na.strings = "NA")
+dat <- dat_import # copy so I don't overwrite the initial import
+dim(dat_import) # 11775 x 65
+sum(is.na(dat_import[,-c(1:8)]))/prod(dim(dat_import[,-c(1:8)])) # 44.85%
+
+# remove follow up ema data
+dat <- dat[-grep("_F$", dat$ID),] 
+sum(is.na(dat[,-c(1:8)]))/prod(dim(dat[,-c(1:8)])) # 43.91%
+
+# remove PTC (controls)
+dat <- dat[-grep("^PTC", dat$ID),]
+sum(is.na(dat[,-c(1:8)]))/prod(dim(dat[,-c(1:8)])) # 45.91%
+
+# ema dat that has initial questionnaire dat
+initema <- read.csv("/Users/clairecusack/Dropbox/PT group network paper (PT open series)/grouppt_dev/IdioImpute/pt_imputed_hasinitialqdat.csv")
+initids=unique(initema$ID)
+
+head(dat)
+```
+
+
+```{r include=FALSE}
+table(dat$ID)
+length(unique(dat$ID))
+dat$ID <- gsub("[A-Z]$", "", dat$ID) # 75
+
+head(dat)
+dat <- dat[dat$ID %in% initids,] 
+rm(initema, initids)
+
+# test <- dat
+
+dat <- dat %>% 
+  mutate(date=lubridate::as_date(date)) %>% 
+  group_by(ID) %>% 
+  mutate(dayvar = cumsum(!duplicated(date))) %>% 
+  mutate(beepconsec = seq(1:n())) %>% 
+  ungroup()
+
+describe(dat[4:6])
+dat %>% filter(dayvar>15) %>% select(ID) %>% unique()
+dat %>% filter(beepconsec>150) %>% select(ID) %>% unique # PT048
+# dat_import %>% filter(str_detect(ID, "^PT048")) %>% select(ID) %>% unique
+
+# multema <- unique(gsub("[A-Z]$", "", unique(dat[grep("[A-Z]$", dat$ID),]$ID)))
+# multema <- unique(grep(paste(multema,collapse="|"), dat$ID, value=TRUE))
+# dat[grep(paste(multema), dat$ID),]
+# dat[grepl(paste(multema), dat$ID),]
+
+
+# missingness <- data.frame(matrix(NA, nrow = length(multema), ncol = 2))
+# names(missingness) <- c("ID", "missingness")
+# missingness[1] <- multema
+
+
+# dat$ID <- gsub("[A-Z]$", "", dat$ID) # why I did this: because PT001 is the same person as PT001A. Caroline said when we estimate networks we use all EMA periods if they had to do multiple periods
+
+# dat$ID <- factor(dat$ID) 
+# length(unique(dat$ID)) # 74
+
+# head(dat)
+
+# check day, beep, beepconsec.
+## Expecting dayvar max 15, beepvar max 5, and beepconsec 75
+# describe(dat[4:6])
+```
+
+# stationarity
+
+Stationarity assumption was met for 11/57 variables (Dickey-Fuller Test). KPSS plot provides an image of value over time. Because so many variables violated stationarity assumptions, I think it makes sense to detrend. I did this by extracting the residuals of regressing the scaled variable on cumulative time.
+
+```{r include=FALSE}
+vars=names(dat)[c(9:ncol(dat))] # create list of vars you want to check stationarity for
+# kpss <- kpss_df(data007, vars)
+kpss <- kpss_df(dat, vars)
+kpss # p values < .05 assumption of stationarity not met
+kpss %>% filter(assump=="FALSE")
+# dir.create("./Results not imputed") 
+write.csv(kpss, "./Results not imputed/kpss.csv", row.names = FALSE)
+
+#### plot kpss ####
+
+test=dat
+test <- dat %>% group_by(ID) %>% 
+  dplyr::mutate(beepcont = seq(1:n())) %>% 
+  relocate(beepcont, .after = beepvar) %>% 
+  ungroup()
+
+test=  test %>% 
+    group_by(beepcont) %>%
+    summarise(across(-c(1:8), mean, na.rm = TRUE)) # average items across beepcont
+
+x <- "beepcont" # make consec beep vector
+y <- colnames(dat)[c(9:ncol(dat))] # make a vector from colnames
+design.matrix <- tidyr::expand_grid(x, y)
+# ggplot function
+kpss_plot = function(x, y, df) { 
+  df$beep <- rep(1:nrow(df))
+  ggplot(df, aes(x = .data[[x]], y = .data[[y]]) ) +
+    geom_point(size=.05) +
+    geom_smooth(method = "lm", se = TRUE, size=.5) +
+    theme_bw() +
+    coord_cartesian(ylim = c(0, 100)) +
+  geom_text(aes(x = 30, y = 95, label=paste("KPSS Trend =",round(kpss.test(.data[[y]], null = "Trend")$statistic, digits = 3),", p = ",round(kpss.test(.data[[y]], null = "Trend")$p.value, digits = 3))), colour = "red1", size = 0, fontface = "bold", check_overlap = TRUE) + 
+    theme(legend.title = element_blank()) #+
+  #  scale_x_continuous(name="Beep", labels = NULL)
+}
+# apply that function over each variable
+plot_grob <- plot_grid(arrangeGrob(grobs=pmap(design.matrix, ~kpss_plot(x = .x, y = .y, df= test))))
+# plot_grob # see the plot
+# dir.create("./Results not imputed/Figures") # create a path
+save_plot("./Results not imputed/Figures/KPSSplots.png", plot_grob) 
+
+#### Dickey-Fuller test ####
+# resource: https://www.statology.org/dickey-fuller-test-in-r/
+test=dat
+sum(is.na(test))/prod(dim(test))  # 41.85
+apply(is.na(test), 2, which)
+# test %>% filter(is.na(anhedonia))
+# dat %>% 
+#   filter(count==98) %>% select(anhedonia, feelfat)
+# test %>% filter(is.na(feelfat))
+list=apply(test[,-1], 2, adf.test)
+x=data.frame(matrix(unlist(list), nrow=length(list), byrow=TRUE))
+rownames(x) <- names(list)
+x %>% filter(X4 >=.05)
+# 38 of 57 violated the assumption of stationarity
+x %>% filter(X4 <.05)
+# 19 did not
+
+# probs best to detrend
+```
+
+## time
+```{r}
+dat$date_time <- paste(dat$date, dat$time)
+dat %>% select(date, time, date_time)
+
+# Duplicate and lag time
+lagpad <- function(x, k) {
+     c(rep(NA, k), x)[1 : length(x)] 
+}
+
+dat$lag <- lagpad(dat$date_time,1)
+# move new var to where I want
+dat <- dat %>% relocate(lag, .after = date_time)
+
+# look to see if worked. I'm expected lag to contain the values of start moved down one row
+head(dat[,c(which(colnames(dat)=="date"), which(colnames(dat)=="time"), which(colnames(dat)=="lag"))]) # yes
+
+## Calculate time differences
+dat$tdif <- as.numeric(difftime(strptime(dat$date_time,"%Y-%m-%d %H:%M:%S"),strptime(dat$lag,"%Y-%m-%d %H:%M:%S")))
+# move new var to where I want
+dat <- dat %>% relocate(tdif, .after = lag)
+
+## Replace NA
+dat$tdif[is.na(dat$tdif)] <- 0
+
+dat %>% select(date_time, lag, tdif)
+
+# Calculate cumulative sum of numeric elapsed time
+dat$cumsumT=cumsum(dat$tdif)
+dat <- dat %>% relocate(cumsumT, .after = tdif)
+dat %>% select(date_time, lag, tdif, cumsumT)
+dat<-dat[-which(colnames(dat)=="date_time")]
+```
+
+
+## detrend
+```{r}
+# trim to cols to be detrended
+dat_trim =dat[,9:65]
+dedat=data.frame(matrix(ncol = dim(dat_trim)[2], nrow = dim(dat_trim[1])))
+colnames(dedat)<-colnames(dat_trim)
+dedat[] <- lapply(dedat, as.numeric)
+
+# detrend
+for(i in 1:ncol(dedat)) {
+  dedat[,i] <- resid(lm(scale(dat_trim[,i])~dat$cumsumT, na.action = na.exclude))
+}
+
+# add day and beep var back in
+dedat <- bind_cols(dat[,c(1,4:6)], dedat)
+# write.csv(dedat, "./Results not imputed/detrended data.csv", row.names = FALSE)
+
+# look again
+vars = names(dedat)[-c(1:4)] # create list of vars you want to check stationarity
+kpss_df(dedat, vars)
+
+x <- "beep" # make consec beep vector
+y <- colnames(dedat)[-c(1:3)] # make a vector from colnames not 1:6 ... everything else
+design.matrix <- tidyr::expand_grid(x, y)
+
+plot_grob <- plot_grid(arrangeGrob(grobs=pmap(design.matrix, ~kpss_plot(x = .x, y = .y, df= dedat))))
+plot_grob 
+```
+
+#  preprocessing
+```{r}
+clairecleans::item_sel(dat_trim, 8)
+# top means = bodydiss, selfcrit, feelfat, overval, fowg, drivethin, alwaysworry, saa
+
+# checks
+describe(dedat$dayvar) # 1-14
+describe(dedat$beepvar) # 1-5
+
+
+dayvar <- "dayvar"
+beepvar <- "beepvar"
+
+# sum(is.na(dat_trim[,names.means]))/prod(dim(dat_trim[,names.means])) # 52.69
+```
+
+# network
+```{r}
+fit <- mlVAR(dedat, vars=names.means, idvar="ID", beepvar = beepvar, dayvar=dayvar, lags = 1,
+             temporal = "correlated", estimator = "lmer", contemporaneous = "correlated", nCores = 1, verbose = TRUE,
+             scale = TRUE, scaleWithin = FALSE, AR = FALSE,
+             MplusSave = TRUE, MplusName = "mlVAR", iterations = "(2000)",
+             chains = nCores)
+
+summary(fit)
+summary(fit)[1] # temporal
+summary(fit)[2] # contemporaneous
+summary(fit)[3] # between
+write.csv(summary(fit)[1], "./Results not imputed/modefit_pdc.csv", row.names = FALSE)
+write.csv(summary(fit)[2], "./Results not imputed/modefit_pcc.csv", row.names = FALSE)
+write.csv(summary(fit)[3], "./Results not imputed/modefit_btwn.csv", row.names = FALSE)
+
+
+#### temporal network plot ####
+pdf("./Results not imputed/Figures/temporalnetwork.pdf")
+pdc <- plot(fit, "temporal", nonsig = "hide", label.cex=1.3, alpha="0.05",
+          vsize=9, legend=F, edge.labels = TRUE,  color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./Results not imputed/Figures/pdc_centplot.pdf")
+pdc_cent <- pdc %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+# centralityTable(pdc)
+write.csv(centralityTable(pdc), "./Results not imputed/temporal centrality.csv", row.names = FALSE)
+
+# edges
+# getWmat(pdc)
+write.csv(getWmat(pdc), "./Results not imputed/edges_pdc.csv", row.names = FALSE)
+
+#### contemporaneous network plot ####
+pdf("./Results not imputed/Figures/contemporaneousnetwork.pdf")
+pcc <- plot(fit, "contemporaneous", nonsig = "hide", rule = "or", label.cex=1.3,
+          vsize=9, legend=F, alpha="0.05",edge.labels = TRUE,
+          color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./Results not imputed/Figures/pcc_centplot.pdf")
+pdc_cent <- pcc %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+# centralityTable(pcc)
+write.csv(centralityTable(pcc), "./Results not imputed/contemporaneous centrality.csv", row.names = FALSE)
+
+# edges
+# getWmat(pcc)
+write.csv(getWmat(pcc), "./Results not imputed/edges_pcc.csv", row.names = FALSE)
+
+
+#### between subjects plot ####
+pdf("./Results not imputed/Figures/betweensubjectsnetwork.pdf")
+btwn <- plot(fit, "between", nonsig = "hide", label.cex=1.3,
+          vsize=9, legend=F, alpha="0.05", rule = "or", edge.labels = TRUE, color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./Results not imputed/Figures/btwn_centplot.pdf")
+btwn_cent <- btwn %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+write.csv(centralityTable(btwn), "./Results not imputed/btwn centrality.csv", row.names = FALSE)
+
+# edges
+# getWmat(btwn)
+write.csv(getWmat(btwn), "./Results not imputed/edges_btwn.csv", row.names = FALSE)
+```
+
+## filter results for paper
+### btwn subjects network
+```{r}
+centralityTable(btwn) %>% filter(measure=="Strength") %>% arrange(-value)
+# calling the centrality table. filtering just the centrality metric I want for this network "Strength" for strength centrality. and then arranging in descending order by value.
+```
+
+### contemporaneous
+```{r}
+centralityTable(pcc) %>% filter(measure=="Strength") %>% arrange(-value)
+```
+
+### temporal
+```{r}
+centralityTable(pdc) %>% filter(measure=="OutStrength") %>% arrange(-value)
+
+centralityTable(pdc) %>% filter(measure=="InStrength") %>% arrange(-value)
+```
+
+# 32 items
+```{r}
+varstokeep = c("drivethin", "bodydiss", "fowg", "alwaysworry", "overval", "reject", "saa", "selfcrit", "ineffective", "fearloc", "mistakes", "obsess", "cogrest", "iuc", "ruminate", "food_intrus", "pastmeal", "highstand","feelfat", "foodrules", "bodycheck", "exercise", "eatpublic", "avoidfood", "binge", "shame", "guilt", "avoid_emo", "eatanx", "interocept", "relax", "hungeranx")
+
+dat_32 <- cbind(dat[,c(1:6, 66:68)], dat[varstokeep])
+sum(is.na(dat_32[,-c(1:9)]))/prod(dim(dat_32[,-c(1:9)])) # 45.80%
+```
+
+## detrend
+```{r}
+dat32_trim =dat_32[,10:ncol(dat_32)]
+dedat_32=data.frame(matrix(ncol = dim(dat32_trim)[2], nrow = dim(dat32_trim[1])))
+colnames(dedat_32)<-colnames(dat32_trim)
+dedat_32[] <- lapply(dedat_32, as.numeric)
+
+# detrend
+for(i in 1:ncol(dedat_32)) {
+  dedat_32[,i] <- resid(lm(scale(dat32_trim[,i])~dat$cumsumT, na.action = na.exclude))
+}
+
+# add day and beep var back in
+dedat_32 <- bind_cols(dat[,c(1,4:6)], dedat_32)
+
+clairecleans::item_sel(dat32_trim, 8)
+# "bodydiss", "selfcrit", "feelfat", "overval", "fowg", "drivethin", "alwaysworry", "saa" 
+```
+
+## network
+```{r}
+fit2 <- mlVAR(dedat_32, vars=names.means, idvar="ID", beepvar = beepvar, dayvar=dayvar, lags = 1,
+             temporal = "correlated", estimator = "lmer", contemporaneous = "correlated", nCores = 1, verbose = TRUE,
+             scale = TRUE, scaleWithin = FALSE, AR = FALSE,
+             MplusSave = TRUE, MplusName = "mlVAR", iterations = "(2000)",
+             chains = nCores)
+
+summary(fit2)
+summary(fit2)[1] # temporal
+summary(fit2)[2] # contemporaneous
+summary(fit2)[3] # between
+dir.create("./Results not imputed/32 item") 
+write.csv(summary(fit2)[1], "./Results not imputed/32 item/modefit_pdc.csv", row.names = FALSE)
+write.csv(summary(fit2)[2], "./Results not imputed/32 item/modefit_pcc.csv", row.names = FALSE)
+write.csv(summary(fit2)[3], "./Results not imputed/32 item/modefit_btwn.csv", row.names = FALSE)
+
+
+#### temporal network plot ####
+pdf("./Results not imputed/32 item/temporalnetwork.pdf")
+pdc <- plot(fit2, "temporal", nonsig = "hide", label.cex=1.3, alpha="0.05",
+          vsize=9, legend=F, edge.labels = TRUE,  color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./Results not imputed/32 item/pdc_centplot.pdf")
+pdc_cent <- pdc %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+# centralityTable(pdc)
+write.csv(centralityTable(pdc), "./Results not imputed/32 item/temporal centrality.csv", row.names = FALSE)
+
+# edges
+# getWmat(pdc)
+write.csv(getWmat(pdc), "./Results not imputed/32 item/edges_pdc.csv", row.names = FALSE)
+
+#### contemporaneous network plot ####
+pdf("./Results not imputed/32 item/contemporaneousnetwork.pdf")
+pcc <- plot(fit2, "contemporaneous", nonsig = "hide", rule = "or", label.cex=1.3,
+          vsize=9, legend=F, alpha="0.05",edge.labels = TRUE,
+          color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./Results not imputed/32 item/pcc_centplot.pdf")
+pdc_cent <- pcc %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+# centralityTable(pcc)
+write.csv(centralityTable(pcc), "./Results not imputed/32 item/contemporaneous centrality.csv", row.names = FALSE)
+
+# edges
+# getWmat(pcc)
+write.csv(getWmat(pcc), "./Results not imputed/32 item/edges_pcc.csv", row.names = FALSE)
+
+
+#### between subjects plot ####
+pdf("./Results not imputed/32 item/betweensubjectsnetwork.pdf")
+btwn <- plot(fit2, "between", nonsig = "hide", label.cex=1.3,
+          vsize=9, legend=F, alpha="0.05", rule = "or", edge.labels = TRUE, color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./Results not imputed/32 item/btwn_centplot.pdf")
+btwn_cent <- btwn %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+write.csv(centralityTable(btwn), "./Results not imputed/32 item/btwn centrality.csv", row.names = FALSE)
+
+# edges
+# getWmat(btwn)
+write.csv(getWmat(btwn), "./Results not imputed/32 item/edges_btwn.csv", row.names = FALSE)
+```
+
+## filter results for paper
+### btwn subjects network
+```{r}
+centralityTable(btwn) %>% filter(measure=="Strength") %>% arrange(-value)
+# calling the centrality table. filtering just the centrality metric I want for this network "Strength" for strength centrality. and then arranging in descending order by value.
+```
+
+### contemporaneous
+```{r}
+centralityTable(pcc) %>% filter(measure=="Strength") %>% arrange(-value)
+```
+
+### temporal
+```{r}
+centralityTable(pdc) %>% filter(measure=="OutStrength") %>% arrange(-value)
+
+centralityTable(pdc) %>% filter(measure=="InStrength") %>% arrange(-value)
+```
+
+
+# imputed
+
+## dat
+```{r}
+imp_import <- read.csv("/Users/clairecusack/Dropbox/PT group network paper (PT open series)/grouppt_dev/IdioImpute/pt_imputed_hasinitialqdat.csv", header=TRUE, sep=",", na.strings = "NA")
+imp <- imp_import
+
+dim(imp) # 6060 x 42
+
+length(unique(imp$ID)) # 71
+```
+
+## stationarity
+
+all met stationarity assumption.
+```{r}
+test=imp[c(1,9:ncol(imp))]
+list=apply(test[,-1], 2, adf.test)
+x=data.frame(matrix(unlist(list), nrow=length(list), byrow=TRUE))
+rownames(x) <- names(list)
+x %>% filter(X4 >=.05)
+# none. all met stationarity
+```
+
+##  preprocessing
+```{r}
+clairecleans::item_sel(imp[9:ncol(imp)], 8)
+# top means = "bodydiss", "selfcrit", "overval", "fowg", "drivethin", "saa", "alwaysworry", "reject" 
+
+describe(imp[4:6]) 
+
+dayvar = "dayvar"
+beepvar = "beepvar"
+```
+
+## network
+```{r}
+fit_imp <- mlVAR(imp, vars=names.means, idvar="ID", beepvar=beepvar, dayvar=dayvar, lags = 1,
+             temporal = "correlated", estimator = "lmer", contemporaneous = "correlated", nCores = 1, verbose = TRUE,
+             scale = TRUE, scaleWithin = FALSE, AR = FALSE,
+             MplusSave = TRUE, MplusName = "mlVAR", iterations = "(2000)",
+             chains = nCores)
+# Some beeps are recorded more than once! Results are likely unreliable.
+summary(fit_imp)
+summary(fit_imp)[1] # temporal
+summary(fit_imp)[2] # contemporaneous
+summary(fit_imp)[3] # between
+# dir.create("./ImputedGroupNet")
+write.csv(summary(fit_imp)[1], "./ImputedGroupNet/modefit_pdc_imp.csv", row.names = FALSE)
+write.csv(summary(fit_imp)[2], "./ImputedGroupNet/modefit_pcc_imp.csv", row.names = FALSE)
+write.csv(summary(fit_imp)[3], "./ImputedGroupNet/modefit_btwn_imp.csv", row.names = FALSE)
+
+# dir.create("./ImputedGroupNet/Figures") # create a path
+#### temporal network plot ####
+pdf("./ImputedGroupNet/Figures/temporalnetwork imp.pdf")
+pdc_imp <- plot(fit_imp, "temporal", nonsig = "hide", label.cex=1.3, alpha="0.05",
+          vsize=9, legend=F, edge.labels = TRUE,  color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./ImputedGroupNet/Figures/pdc_centplot imp.pdf")
+pdc_cent_imp <- pdc_imp %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+# centralityTable(pdc_imp)
+write.csv(centralityTable(pdc_imp), "./ImputedGroupNet/temporal centrality imp.csv", row.names = FALSE)
+
+# edges
+# getWmat(pdc_imp)
+write.csv(getWmat(pdc_imp), "./ImputedGroupNet/edges_pdc_imp.csv", row.names = FALSE)
+
+#### contemporaneous network plot ####
+pdf("./ImputedGroupNet/Figures/contemporaneousnetwork imp.pdf")
+pcc_imp <- plot(fit_imp, "contemporaneous", nonsig = "hide", rule = "or", label.cex=1.3,
+          vsize=9, legend=F, alpha="0.05",edge.labels = TRUE,
+          color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./ImputedGroupNet/Figures/pcc_centplot.pdf")
+pdc_cent_imp <- pcc_imp %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+test=as.data.frame(centrality_auto(pcc_imp)[1])
+write.csv(test, "./ImputedGroupNet/contemporaneous centrality imp.csv", row.names = TRUE)
+
+# edges
+# getWmat(pcc_imp)
+write.csv(getWmat(pcc_imp), "./ImputedGroupNet/edges_pcc imp.csv", row.names = FALSE)
+
+
+#### between subjects plot ####
+pdf("./ImputedGroupNet/Figures/betweensubjectsnetwork imp.pdf")
+btwn_imp <- plot(fit_imp, "between", nonsig = "hide", label.cex=1.3,
+          vsize=9, legend=F, alpha="0.05", rule = "or", edge.labels = TRUE, color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./ImputedGroupNet/Figures/btwn_centplot imp.pdf")
+btwn_cent_imp <- btwn_imp %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+write.csv(centralityTable(btwn_imp), "./ImputedGroupNet/btwn centrality imp.csv", row.names = FALSE)
+
+# edges
+# getWmat(btwn_imp)
+write.csv(getWmat(btwn_imp), "./ImputedGroupNet/edges_btwn imp.csv", row.names = FALSE)
+```
+
+## filter results for paper
+### btwn subjects network
+```{r}
+centrality_auto(btwn_imp)[[1]][3]
+# saa 1.69
+# selfcrit 1.37
+# reject 1.21
+# bodydiss 0.87
+# fowg 0.86
+# alwaysworry 0.57
+# drivethin 0.43
+```
+
+### contemporaneous
+```{r}
+centrality_auto(pcc_imp)[[1]][3]
+# drivethin 0.46
+# alwaysworry 0.41
+# fowg 0.39
+# bodydiss 0.25
+# saa 0.23
+# overval 0.19
+# reject 0.16
+# selfcrit 0.16
+```
+
+### temporal
+```{r}
+centrality_auto(pdc_imp)[[1]][4]
+# body diss 0.19
+# overval 0.19
+# reject 0.16
+
+centrality_auto(pdc_imp)[[1]][3]
+# drivethin 0.20
+# reject 0.17
+# overval 0.15
+# self crit 0.14
+```
+
+# save rdata
+```{r}
+# save.image(file = "PTGroupNets.RData")
+sessionInfo()
+```
+
+# 8 items from random nets
+
+shame, guilt, overval, alwaysworry, fearloc, selfcrit, emo_overwhelm, ineffective
+
+## setup
+```{r}
+dat_import <- read.csv("/Users/clairecusack/Dropbox/PT group network paper (PT open series)/grouppt_dev/IdioImpute/pt_imputed_hasinitialqdat.csv", header=TRUE, sep=",", na.strings = "NA")
+dat <- dat_import
+
+dim(dat) # 6060 x 42
+
+length(unique(dat$ID)) # 71
+
+dayvar = "dayvar"
+beepvar = "beepvar"
+node8 <- c("shame", "guilt", "overval", "alwaysworry", "fearloc", "selfcrit", "emo_overwhelm", "ineffective")
+```
+
+## network
+```{r}
+fit_8 <- mlVAR(dat, vars=node8, idvar="ID", beepvar=beepvar, dayvar=dayvar, lags = 1,
+             temporal = "correlated", estimator = "lmer", contemporaneous = "correlated", nCores = 1, verbose = TRUE,
+             scale = TRUE, scaleWithin = FALSE, AR = FALSE,
+             MplusSave = TRUE, MplusName = "mlVAR", iterations = "(2000)",
+             chains = nCores)
+# Some beeps are recorded more than once! Results are likely unreliable.
+summary(fit_8)
+summary(fit_8)[1] # temporal
+summary(fit_8)[2] # contemporaneous
+summary(fit_8)[3] # between
+dir.create("./Posthoc_GroupNet")
+write.csv(summary(fit_8)[1], "./Posthoc_GroupNet/modefit_pdc_posthoc.csv", row.names = FALSE)
+write.csv(summary(fit_8)[2], "./Posthoc_GroupNet/modefit_pcc_posthoc.csv", row.names = FALSE)
+write.csv(summary(fit_8)[3], "./Posthoc_GroupNet/modefit_btwn_posthoc.csv", row.names = FALSE)
+
+dir.create("./Posthoc_GroupNet/Figures") # create a path
+#### temporal network plot ####
+pdf("./Posthoc_GroupNet/Figures/temporalnetwork posthoc.pdf")
+pdc_imp <- plot(fit_8, "temporal", nonsig = "hide", label.cex=1.3, alpha="0.05",
+          vsize=9, legend=F, edge.labels = TRUE,  color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./Posthoc_GroupNet/Figures/pdc_centplot posthoc.pdf")
+pdc_cent_imp <- pdc_imp %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+# centralityTable(pdc_imp)
+write.csv(centralityTable(pdc_imp), "./Posthoc_GroupNet/temporal centrality posthoc.csv", row.names = FALSE)
+
+# edges
+# getWmat(pdc_imp)
+write.csv(getWmat(pdc_imp), "./Posthoc_GroupNet/edges_pdc_posthoc.csv", row.names = FALSE)
+
+#### contemporaneous network plot ####
+pdf("./Posthoc_GroupNet/Figures/contemporaneousnetwork posthoc.pdf")
+pcc_imp <- plot(fit_8, "contemporaneous", nonsig = "hide", rule = "or", label.cex=1.3,
+          vsize=9, legend=F, alpha="0.05",edge.labels = TRUE,
+          color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./Posthoc_GroupNet/Figures/pcc_centplot posthoc.pdf")
+pdc_cent_imp <- pcc_imp %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+test=as.data.frame(centrality_auto(pcc_imp)[1])
+write.csv(test, "./Posthoc_GroupNet/contemporaneous centrality posthoc.csv", row.names = TRUE)
+
+# edges
+# getWmat(pcc_imp)
+write.csv(getWmat(pcc_imp), "./Posthoc_GroupNet/edges_pcc posthoc.csv", row.names = FALSE)
+
+
+#### between subjects plot ####
+pdf("./Posthoc_GroupNet/Figures/betweensubjectsnetwork posthoc.pdf")
+btwn_imp <- plot(fit_8, "between", nonsig = "hide", label.cex=1.3,
+          vsize=9, legend=F, alpha="0.05", rule = "or", edge.labels = TRUE, color=c('#b4dced'))
+dev.off()
+
+# centrality plot
+pdf("./Posthoc_GroupNet/Figures/btwn_centplot posthoc.pdf")
+btwn_cent_imp <- btwn_imp %>% 
+  # centrPlot() +
+  centralityPlot()+
+  theme(legend.position = "none") +
+ # facet_grid(rows = vars(measure)) +
+  theme(axis.text=element_text(size=13),
+      #  strip.text.y = element_text(size=15),
+        strip.text.x = element_text(size = 15))
+dev.off()
+
+write.csv(centralityTable(btwn_imp), "./Posthoc_GroupNet/btwn centrality posthoc.csv", row.names = FALSE)
+
+# edges
+# getWmat(btwn_imp)
+write.csv(getWmat(btwn_imp), "./Posthoc_GroupNet/edges_btwn posthoc.csv", row.names = FALSE)
+```
+
+## filter
+### btwn sub
+```{r}
+centrality_auto(btwn_imp)[[1]][3]
+# shame 1.64
+# guilt 0.93
+# ineffective 0.91
+# alwaysworry 0.77
+# emo_overwhelm 0.56
+# fearloc 0.43
+# selfcrit 0.33
+# overval 0.00
+```
+
+### contemporaneous
+```{r}
+centrality_auto(pcc_imp)[[1]][3]
+sort(unlist(centrality_auto(pcc_imp)[[1]][3]), decreasing=TRUE)
+# shame 0.85
+# guilt 0.67
+# ineffective 0.48 (random: overval 3rd to 6th)
+# alwaysworry 0.33
+# fearloc 0.29
+# overval 0.27 (random: selfcrit 6th to 8th)
+# emo_overwhelm 0.27
+# selfcrit 0.27 (random: ineffective 8th to 3rd)
+```
+
+### temporal
+```{r}
+# outstrength
+centrality_auto(pdc_imp)[[1]][4]
+# guilt 0.27
+# ineffective 0.16
+
+# instrength
+centrality_auto(pdc_imp)[[1]][3]
+# selfcrit 0.16
+# shame 0.14
+```
+
+# save
+```{r}
+save.image(file = "PTGroupNets_posthoc.RData")
+```
+
+
