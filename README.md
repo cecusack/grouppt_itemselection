@@ -5,3 +5,5 @@ This repository contains code for the project <em>"Are Central Eating Disorder N
 <sup>1</sup> University of Louisville, Department of Psychological and Brain Sciences    
 <sup>2</sup> Johns Hopkins University, School of Medicine    
 <sup>3</sup> Trinity College Dublin, School of Psychology   
+
+This project is preregistered on <a href="https://osf.io/j27wh" target="_blank">OSF</a>.
