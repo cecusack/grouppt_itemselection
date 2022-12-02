@@ -1,0 +1,287 @@
+---
+title: "R15 demos"
+date: '2022-11-11'
+output: 
+  html_document:
+    toc: true
+    toc_depth: 6
+    toc_float: true
+    number_sections: true
+    code_folding: hide
+    theme: cosmo
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# libs dat
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(psych)
+library(clairecleans)
+dat_import <- read.csv("R15PT Networks Demographics.csv", header = TRUE, sep=",", na.strings = c("NA", -99))
+dat <- dat_import
+head(dat)
+dim(dat) # 124 x 46
+ids <- c("PR001", "PR003", "PR007", "PR008", "PR010", "PR011", "PR017", "PR018", "PR019", "PR020", "PR021", "PR022", "PR023", "PR025", "PR026", "PR030", "PR032", "PR033", "PR037", "PR038", "PR039", "PR042", "PR043", "PR044", "PR048", "PR073", "PR074", "PR078", "PR079", "PR084", "PR085", "PR086", "PR089", "PR092", "PR093", "PR096", "PR101", "PR102", "PR104", "PR106", "PR117")
+setdiff(ids, dat$participant_id) # 0 
+dat <- subset(dat, participant_id %in% ids) 
+dim(dat) # 41 x 46
+```
+
+# column names
+```{r echo=FALSE}
+dat <- dat %>% rename(
+  sex=demo_1,
+  gender=demo_2,
+  sexorient=demo_3,
+  race=demo_24,
+  race_asian=demo_25,
+  race_describe=demo_26,
+  income=demo_21,
+  yrsschooling=demo_19,
+  edeq6_21=edeq21,
+  weight=edeq6_29,
+  height=edeq6_30
+)
+```
+
+# height
+```{r  warning=FALSE, message=FALSE}
+table(dat$height, useNA = "ifany") # no too bad a few wonky ones we'll see
+
+clairecleans::fixheight(dat, "height")
+# 5' 4.5' in height original is NA in height. rest look good
+heightflag %>% select(participant_id, height_original, height)
+dat[which(dat$participant_id=="PR102"), which(colnames(dat)=="height")] <- 64.5
+# check
+dat %>% filter(participant_id=="PR102") %>%  select(participant_id, height_original, height)
+rm(heightflag)
+describe(dat$height) # m = 64.66, sd = 2.42, range = 60 - 68.5
+
+```
+
+# weight
+```{r  warning=FALSE, message=FALSE}
+table(dat$weight, useNA = "ifany") # not too bad!
+
+clairecleans::fixweight(dat, "weight")
+weightflag %>% select(participant_id, weight_original, weight) # PR043 170
+dat[which(dat$participant_id=="PR043"), which(colnames(dat)=="weight")] <- 170
+# check
+dat %>% filter(participant_id=="PR043") %>%  select(participant_id, weight_original, weight)
+rm(weightflag)
+describe(dat$weight) # m = 138.43, sd = 53.14, Range = 76 - 358
+```
+
+# recode demos
+
+PR037 listed as no dx in this data file. I checked the participant tracker google sheet and it said atypical AN but didn't specify specific. I then checked the R15 screenings redcap and they're AAN-R. 
+
+```{r include=FALSE}
+dat[c(2:6,9:13,48)] <- lapply(dat[c(2:6,9:13,48)], as.factor)
+
+#### sex ####
+table(dat$sex, useNA = "ifany")
+dat$sex <- dplyr::recode(dat$sex, "1" = "male", "2" = "female", "3"="intersex")
+
+#### gender ####
+table(dat$gender, useNA = "ifany")
+dat$gender <- dplyr::recode(dat$gender, "1" = "cisgender woman", "2" = "cisgender man", "3"="trans woman", "4"="trans man", "5"="gender nonconforming", "6"="not listed")
+
+#### sex orient ####
+table(dat$sexorient, useNA = "ifany")
+dat$sexorient <- dplyr::recode(dat$sexorient, "1" = "lesbian or gay", "2" = "heterosexual", "3"="bisexual", "4"="not listed", "5"="questioning", "6"="prefer not to disclose")
+
+#### race ####
+table(dat$race, useNA = "ifany")
+dat$race <- dplyr::recode(dat$race, "0" = "American Indian or Alaska Native", "1" = "AAPI", "2"="Black", "3"="Hispanic", "4"="Bi- or Multi-Racial", "5"="White", "6"="Not listed")
+
+#### asian race ####
+table(dat$race_asian, useNA = "ifany")  # NA
+
+#### current dx1 ####
+table(dat$currentdx1, useNA = "ifany")
+dat$currentdx1 <- dplyr::recode(dat$currentdx1, "1" = "AN", "2" = "BN", "4"="OSFED", "6"="No dx")
+
+
+#### current dx2 ####
+table(dat$currentdx2, useNA = "ifany")
+dat$currentdx2 <- dplyr::recode(dat$currentdx2, "1" = "ANBP", "2" = "ANR", "3"="BNP", "6"="AANBP", "7"="AANR", "8"="ABNP", "13"="No dx")
+
+#### dx by bp or restrict ####
+dat <- dat %>% mutate(dat, dx_binary = 
+                 ifelse(grepl("^ANBP$|^BNP$|^AANBP$|^ABNP$", currentdx2), paste("bp"),
+                        ifelse(grepl("ANR|AANR", currentdx2), paste("restrict"), NA))) %>% 
+  relocate(dx_binary, .after = currentdx2)
+
+#### diagnostic status baseline ####
+table(dat$diagnostic_status_baseline, useNA = "ifany")
+dat$diagnostic_status_baseline <- dplyr::recode(dat$diagnostic_status_baseline, "2" = "Partial remission", "3" = "Active ED")
+
+dat %>% filter(currentdx1=="No dx") # PR037 partial remission from what. google sheet says AAN
+dat[which(dat$participant_id=="PR037"), which(colnames(dat)=="currentdx1")] <- "OSFED"
+dat[which(dat$participant_id=="PR037"), which(colnames(dat)=="currentdx2")] <- "AANR"
+# what's their specific diagnosis
+dat %>% filter(is.na(currentdx1))
+dat %>% filter(is.na(currentdx2)) # PR092 is missing specific diagnosis
+dat[which(dat$participant_id=="PR092"), which(colnames(dat)=="currentdx2")] <- "BNP"
+
+dat$dx_binary <- factor(dat$dx_binary)
+
+#### income ####
+table(dat$income, useNA = "ifany")
+dat$income <- dplyr::recode(dat$income, "1" = "< $20,000", "2" = "$20,000-34,999", "3"="$35,000-49,000", "4"="$50,000-74,999", "5"="$75,000-99,999", "6"="$100,000-149,999", "7"="$150,000-199,999", "8"="> $200,000")
+
+#### yrs schooling ####
+table(dat$yrsschooling, useNA = "ifany")
+dat$yrsschooling <- dplyr::recode(dat$yrsschooling, "1" = "Less than high school", "2" = "High school", "3"="Some college", "4"="Associates degree", "5"="Bachelors degree", "6"="Masters degree", "7"="Doctorate or professional")
+
+#### edeq6_33 ####
+table(dat$edeq6_33, useNA = "ifany")
+dat$edeq6_33 <- dplyr::recode(dat$edeq6_33, "0" = "no", "1" = "yes")
+```
+
+# demos as tables
+```{r, results='hold'}
+dat %>% 
+  count(sex) %>% 
+  mutate(per = round(n/sum(n) * 100,2)) 
+
+dat %>% 
+  count(gender) %>% 
+  mutate(per = round(n/sum(n) * 100,2)) 
+
+dat %>% 
+  count(sexorient) %>% 
+  mutate(per = round(n/sum(n) * 100,2)) 
+
+dat %>% 
+  count(race) %>% 
+  mutate(per = round(n/sum(n) * 100,2)) 
+
+dat %>% 
+  count(currentdx1) %>% 
+  mutate(per = round(n/sum(n) * 100,2)) 
+
+dat %>% 
+  count(currentdx2) %>% 
+  mutate(per = round(n/sum(n) * 100,2)) 
+
+dat %>% 
+  count(dx_binary) %>% 
+  mutate(per = round(n/sum(n) * 100,2)) 
+
+dat %>% 
+  count(diagnostic_status_baseline) %>% 
+  mutate(per = round(n/sum(n) * 100,2)) 
+
+dat %>% 
+  count(income) %>% 
+  mutate(per = round(n/sum(n) * 100,2)) 
+
+dat %>% 
+  count(yrsschooling) %>% 
+  mutate(per = round(n/sum(n) * 100,2)) 
+
+describe(dat$age)
+```
+
+# edeq 6
+```{r}
+# Restraint: items 1-5
+dat <- dat %>%
+ mutate(edeq_restraint = rowMeans(select(., c(edeq6_1:edeq6_5)), na.rm = TRUE)* ifelse(rowSums(is.na(select(., c(edeq6_1:edeq6_5)))) == ncol(select(., c(edeq6_1:edeq6_5))), NA, 1))
+
+# check to see if values make sense
+describe(dat$edeq_restraint) # mean 3.449, min 02, max 6.
+
+# eating concern subscale items 7, 9, 19, 21, 20
+dat <- dat %>%
+ mutate(edeq_eatconcen = rowMeans(select(., c(edeq6_7, edeq6_9, edeq6_19, edeq6_20:edeq6_21)), na.rm = TRUE)* ifelse(rowSums(is.na(select(., c(edeq6_7, edeq6_9, edeq6_19, edeq6_20:edeq6_21)))) == ncol(select(., c(edeq6_7, edeq6_9, edeq6_19, edeq6_20:edeq6_21))), NA, 1))
+
+# check to see if values make sense
+describe(dat$edeq_eatconcen) # mean = 3.14, min = 0, max = 6
+
+# Shape Concern: 6, 8, 23, 10, 26, 27, 28, 11
+ dat <- dat %>%
+ mutate(edeq_shape = rowMeans(select(., c(edeq6_6, edeq6_8, edeq6_23, edeq6_10, edeq6_26:edeq6_27, edeq6_11)), na.rm = TRUE)* ifelse(rowSums(is.na(select(., c(edeq6_6, edeq6_8, edeq6_23, edeq6_10, edeq6_26:edeq6_27, edeq6_11)))) == ncol(select(., c(edeq6_6, edeq6_8, edeq6_23, edeq6_10, edeq6_26:edeq6_27, edeq6_11))), NA, 1))
+ 
+# check to see if values make sense
+ describe(dat$edeq_shape) # mean = 4.62, min = 0.86, max = 6
+
+# Weight Concern: 22, 24, 8, 25, 12
+ dat <- dat %>%
+ mutate(edeq_wtconcern = rowMeans(select(., c(edeq6_22, edeq6_24, edeq6_8, edeq6_25, edeq6_12)), na.rm = TRUE)* ifelse(rowSums(is.na(select(., c(edeq6_22, edeq6_24, edeq6_8, edeq6_25, edeq6_12)))) == ncol(select(., c(edeq6_22, edeq6_24, edeq6_8, edeq6_25, edeq6_12))), NA, 1))
+ 
+# check to see if values make sense
+ describe(dat$edeq_wtconcern) # mean = 4.26, min = 0.2, max = 6
+ 
+# global score
+ dat <- dat %>%
+ mutate(edeq_global = rowMeans(select(., c(edeq_restraint, edeq_eatconcen, edeq_shape, edeq_wtconcern)), na.rm = TRUE)* ifelse(rowSums(is.na(select(., c(edeq_restraint, edeq_eatconcen, edeq_shape, edeq_wtconcern)))) == ncol(select(., c(edeq_restraint, edeq_eatconcen, edeq_shape, edeq_wtconcern))), NA, 1))
+ 
+# check to see if values make sense
+ describe(dat$edeq_global) # mean = 3.87, min = 0.71, max = 5.9
+```
+
+# demo diffs
+```{r}
+dat_r15 <- dat
+dat_pt <- read.csv("initquestion_idsclean.csv", stringsAsFactors = TRUE)
+
+table(dat_r15$gender, useNA = "ifany")
+dat_r15$gender_collpase <- ifelse(dat_r15$gender=="cisgender woman", "cisgender woman", "other")
+table(dat_pt$gender, useNA = "ifany")
+dat_pt$gender_collpase <- ifelse(dat_pt$gender=="cis woman", "cisgender woman", "other")
+
+table(dat_r15$gender_collpase, useNA = "ifany")
+table(dat_pt$gender_collpase, useNA = "ifany")
+chisq.test(rbind(c(38, 3), c(61, 10))) # women v other
+# X-squared = 0.59434, df = 1, p-value = 0.4407
+
+table(dat_r15$race, useNA = "ifany")
+table(dat_pt$race, useNA = "ifany")
+chisq.test(rbind(c(32, 9), c(61, 10))) # white v other
+# X-squared = 0.65168, df = 1, p-value = 0.4195
+
+t.test(dat_r15$age, dat_pt$age)
+# t = -0.94841, df = 100.02, p-value = 0.3452
+# 95 percent confidence interval: -5.353146  1.890429
+# mean of x mean of y 
+# 30.68293  32.41429 
+library(effectsize)
+effectsize::cohens_d(dat_r15$age, dat_pt$age)
+# d = -0.18, 95% CI: [-0.56, 0.21]
+
+t.test(dat_r15$edeq_global, dat_pt$edeq_global)
+# t = 1.0752, df = 79.056, p-value = 0.2855
+# 95 percent confidence interval: -0.2277400  0.7628847
+# mean of x mean of y 
+# 3.867683  3.600111 
+effectsize::cohens_d(dat_r15$edeq_global, dat_pt$edeq_global)
+# d = 0.22, 95% CI: [-0.17, 0.60]
+
+table(dat_r15$gender_collpase, useNA = "ifany")
+table(dat_pt$gender_collpase, useNA = "ifany")
+# r15 vs pt AN, BN, BED, OSFED
+chisq.test(rbind(c(17, 11, 0, 13), c(15, 14, 14, 28))) # women v other
+# X-squared = 12.86, df = 3, p-value = 0.00495
+
+table(dat_r15$dx_binary, useNA = "ifany")
+dat_r15 %>% filter(is.na(dx_binary))
+dat_r15[which(dat_r15$participant_id=="PR037"), which(colnames(dat_r15)=="dx_binary")] <- "restrict"
+dat_r15[which(dat_r15$participant_id=="PR092"), which(colnames(dat_r15)=="dx_binary")] <- "bp"
+# bp 25 restrict 16
+# pt: 
+## restrict = sum(17, 11, 2) # 30
+## bp = sum(2, 6, 4, 14, 9, 5, 1) # 41
+# table(pt_dx$Confirmed.Dx)
+# pt_dx %>% filter(Confirmed.Dx=="OSFED")
+# A-BED, A-BN neither binge. both checked as AAN
+chisq.test(rbind(c(25, 16), c(41, 30)))
+# X-squared = 0.0183, df = 1, p-value = 0.8924
+```
+
